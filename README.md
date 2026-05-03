@@ -1,11 +1,17 @@
 # Helix SROP — Stateful RAG Orchestration Pipeline
 
+**Submission by Abhay Sengar** · ServiceHive GenAI Engineer take-home
+
 An AI support concierge for the (fictitious) Helix dev-tools platform. One
 conversation handles **product knowledge questions** (RAG over `docs/`),
 **account lookups** (mock build/plan tools), and **escalation** (creates
 support tickets) — and survives a `uvicorn` restart mid-conversation.
 
-Built with FastAPI + Google ADK + SQLAlchemy 2.x async + ChromaDB.
+Built with FastAPI + Google ADK + LiteLLM (Claude Sonnet 4.5) +
+SQLAlchemy 2.x async + ChromaDB.
+
+- **Repo:** <https://github.com/senpaisaul/helix-srop>
+- **Demo (Loom):** _[link added after recording — see bottom of file]_
 
 ---
 
@@ -14,7 +20,7 @@ Built with FastAPI + Google ADK + SQLAlchemy 2.x async + ChromaDB.
 Requires Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone <your-repo>
+git clone https://github.com/senpaisaul/helix-srop.git
 cd helix-srop
 uv sync --all-extras
 cp .env.example .env                            # paste your keys (see below)
@@ -46,36 +52,53 @@ uv run ruff check app tests eval
 
 ## Quick Test
 
+> If you don't have `jq` on Windows, replace `jq .` / `jq -r .session_id`
+> with `python -m json.tool` / a small Python parser (shown below).
+
 ```bash
+# 1. Create a session.
 SESSION=$(curl -s -X POST localhost:8000/v1/sessions \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"u_demo","plan_tier":"pro"}' | jq -r .session_id)
+  -d '{"user_id":"u_demo","plan_tier":"pro"}' \
+  | python -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
+echo "session_id=$SESSION"
 
-# Knowledge question — routes to KnowledgeAgent, cites chunk IDs.
+# 2. Knowledge question — routes to KnowledgeAgent, cites chunk IDs.
+RESP=$(curl -s -X POST localhost:8000/v1/chat/$SESSION \
+  -H "Content-Type: application/json" \
+  -d '{"content":"How do I rotate a deploy key?"}')
+echo "$RESP" | python -m json.tool
+TRACE=$(echo "$RESP" | python -c "import sys,json; print(json.load(sys.stdin)['trace_id'])")
+
+# 3. Inspect the trace — routed_to, tool_calls, retrieved chunk_ids, latency_ms.
+curl -s localhost:8000/v1/traces/$TRACE | python -m json.tool
+
+# 4. Account question — same session, routes to AccountAgent.
 curl -s -X POST localhost:8000/v1/chat/$SESSION \
   -H "Content-Type: application/json" \
-  -d '{"content":"How do I rotate a deploy key?"}' | jq .
-
-# Account question — routes to AccountAgent, calls get_recent_builds.
-curl -s -X POST localhost:8000/v1/chat/$SESSION \
-  -H "Content-Type: application/json" \
-  -d '{"content":"Show me my last 3 builds."}' | jq .
-
-# Trace — full structured record of the previous turn.
-TRACE=$(... | jq -r .trace_id)
-curl -s localhost:8000/v1/traces/$TRACE | jq .
+  -d '{"content":"Show me my last 3 builds."}' | python -m json.tool
 ```
 
-### Restart-survival demo
+### Restart-survival demo (the headline test)
 
 ```bash
-# Send a knowledge turn, kill the server, restart, send a follow-up:
-uv run uvicorn app.main:app                   # in terminal A
-# (curl session create + first turn)
-^C                                            # kill the server
-uv run uvicorn app.main:app                   # restart
-# Next chat call on the same session_id sees plan_tier, last_agent,
-# and the prior turn's summary in its [SESSION CONTEXT] preamble.
+# Terminal A
+uv run uvicorn app.main:app
+# ... run the Quick Test above in Terminal B ...
+
+# Now in Terminal A: kill the server.
+Ctrl+C
+
+# Restart it. Brand-new process, in-memory state lost.
+uv run uvicorn app.main:app
+
+# Terminal B (same shell, $SESSION still set): ask a context-dependent question.
+curl -s -X POST localhost:8000/v1/chat/$SESSION \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Quick check: which plan tier am I on, and what was the last thing we discussed?"}' \
+  | python -m json.tool
+# → reply correctly states "Pro" and recalls the previous turns,
+#   loaded from sessions.state JSON + messages table after the restart.
 ```
 
 ## Architecture
@@ -264,3 +287,14 @@ when an answer looks wrong (you can verify which chunks the model saw).
 | Tests (mocks, integration, retriever)              |  ~1 h  |
 | Docker, eval harness, guardrails, README           |  ~1 h  |
 | **Total**                                          | **~8.5 h** |
+
+---
+
+## Demo
+
+_Loom walkthrough (≤ 4 min):_ **_paste the link here after recording_**
+
+The demo covers: clean clone, `pytest` green, server boot, knowledge turn
+with chunk-ID citation, trace inspection, account turn, **uvicorn kill +
+restart**, post-restart context-dependent follow-up demonstrating that
+`plan_tier`, recent messages, and `last_summary` survive process death.
