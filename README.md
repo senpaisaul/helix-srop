@@ -11,7 +11,7 @@ Built with FastAPI + Google ADK + LiteLLM (Claude Sonnet 4.5) +
 SQLAlchemy 2.x async + ChromaDB.
 
 - **Repo:** <https://github.com/senpaisaul/helix-srop>
-- **Demo (Loom):** _[link added after recording — see bottom of file]_
+- **Demo video:** <https://drive.google.com/file/d/1y3NqZblvcttzqj8jBnhE9TBmHOv1TNlC/view?usp=sharing>
 
 ---
 
@@ -292,7 +292,7 @@ when an answer looks wrong (you can verify which chunks the model saw).
 
 ## Demo
 
-_Loom walkthrough (≤ 4 min):_ **_paste the link here after recording_**
+Walkthrough video: <https://drive.google.com/file/d/1y3NqZblvcttzqj8jBnhE9TBmHOv1TNlC/view?usp=sharing>
 
 The demo covers: clean clone, `pytest` green, server boot, knowledge turn
 with chunk-ID citation, trace inspection, account turn, **uvicorn kill +
